@@ -1,10 +1,8 @@
 import streamlit as st
 import pdfplumber
 import pandas as pd
+import plotly.graph_objects as go
 import networkx as nx
-from pyvis.network import Network
-import streamlit.components.v1 as components
-import plotly.express as px
 
 st.set_page_config(layout="wide")
 
@@ -12,29 +10,28 @@ st.title("Visualização Intersetorial do PPA")
 st.subheader("Ferramenta de navegação pelas áreas do Plano Plurianual")
 
 # -----------------------------
-# MENU LATERAL
+# MENU
 # -----------------------------
 
 menu = st.sidebar.selectbox(
     "Escolha a visualização",
     [
         "Mapa Intersetorial",
-        "Explorar Estrutura do PPA",
+        "Explorar Estrutura",
         "Indicadores"
     ]
 )
 
 # -----------------------------
-# FUNÇÃO PARA LER PDF
+# FUNÇÃO LEITURA PDF
 # -----------------------------
 
-def ler_pdf(caminho):
+def ler_pdf(arquivo):
 
     texto = ""
 
     try:
-
-        with pdfplumber.open(caminho) as pdf:
+        with pdfplumber.open(arquivo) as pdf:
 
             for page in pdf.pages:
 
@@ -43,16 +40,14 @@ def ler_pdf(caminho):
                 if conteudo:
                     texto += conteudo + "\n"
 
-    except Exception as e:
-
-        st.error(f"Erro ao ler arquivo {caminho}")
-        st.write(e)
+    except:
+        st.warning(f"Erro ao ler {arquivo}")
 
     return texto
 
 
 # -----------------------------
-# FUNÇÃO PARA CRIAR DATAFRAME
+# TRANSFORMAR TEXTO EM DATAFRAME
 # -----------------------------
 
 def gerar_dataframe(texto):
@@ -63,7 +58,7 @@ def gerar_dataframe(texto):
 
     for linha in linhas:
 
-        if len(linha.strip()) > 15:
+        if len(linha.strip()) > 20:
 
             dados.append({"texto": linha})
 
@@ -74,7 +69,7 @@ def gerar_dataframe(texto):
 # CARREGAR DADOS
 # -----------------------------
 
-with st.spinner("Carregando dados do PPA..."):
+with st.spinner("Carregando PPA..."):
 
     estrutura_texto = ler_pdf("Anexo-I-PDF.pdf")
     indicadores_texto = ler_pdf("Anexo-II-PDF.pdf")
@@ -91,65 +86,99 @@ if menu == "Mapa Intersetorial":
 
     st.header("Mapa Intersetorial do PPA")
 
-    if df.empty:
+    limite = min(150, len(df))
 
-        st.warning("Não foi possível extrair estrutura do PDF")
+    G = nx.Graph()
 
-    else:
+    for i in range(limite):
 
-        limite = min(250, len(df))
+        node = df.iloc[i]["texto"]
 
-        G = nx.Graph()
+        G.add_node(node)
 
-        for i in range(limite):
+        if i > 0:
+            G.add_edge(df.iloc[i-1]["texto"], node)
 
-            node = df.iloc[i]["texto"]
+    pos = nx.spring_layout(G)
 
-            G.add_node(node)
+    edge_x = []
+    edge_y = []
 
-            if i > 0:
+    for edge in G.edges():
 
-                anterior = df.iloc[i - 1]["texto"]
+        x0, y0 = pos[edge[0]]
+        x1, y1 = pos[edge[1]]
 
-                G.add_edge(anterior, node)
+        edge_x.append(x0)
+        edge_x.append(x1)
+        edge_x.append(None)
 
-        net = Network(
-            height="750px",
-            width="100%",
-            bgcolor="white",
-            font_color="black"
+        edge_y.append(y0)
+        edge_y.append(y1)
+        edge_y.append(None)
+
+    edge_trace = go.Scatter(
+        x=edge_x,
+        y=edge_y,
+        line=dict(width=1),
+        hoverinfo='none',
+        mode='lines'
+    )
+
+    node_x = []
+    node_y = []
+    node_text = []
+
+    for node in G.nodes():
+
+        x, y = pos[node]
+
+        node_x.append(x)
+        node_y.append(y)
+        node_text.append(node)
+
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode='markers+text',
+        text=node_text,
+        textposition="top center",
+        hoverinfo='text',
+        marker=dict(
+            size=10
         )
+    )
 
-        net.from_nx(G)
+    fig = go.Figure(
+        data=[edge_trace, node_trace],
+        layout=go.Layout(
+            showlegend=False,
+            hovermode='closest'
+        )
+    )
 
-        net.toggle_physics(True)
-
-        html = net.generate_html()
-
-        components.html(html, height=800)
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # ====================================================
-# BUSCA NA ESTRUTURA DO PPA
+# BUSCA NA ESTRUTURA
 # ====================================================
 
-elif menu == "Explorar Estrutura do PPA":
+elif menu == "Explorar Estrutura":
 
     st.header("Busca na Estrutura do PPA")
 
-    busca = st.text_input("Digite palavra-chave")
+    busca = st.text_input("Buscar programa, ação ou tema")
 
     if busca:
 
         resultado = df[df["texto"].str.contains(busca, case=False)]
 
-        st.write("Resultados encontrados:")
-
-        st.dataframe(resultado.head(100))
+        st.dataframe(resultado.head(200))
 
     else:
 
-        st.write("Digite um termo para iniciar a busca.")
+        st.write("Digite um termo para pesquisar.")
 
 
 # ====================================================
@@ -160,16 +189,15 @@ elif menu == "Indicadores":
 
     st.header("Indicadores do PPA")
 
-    st.write("Pré-visualização dos dados extraídos:")
-
     st.dataframe(df_ind.head(200))
 
-    st.write("Distribuição de indicadores:")
+    contagem = df_ind["texto"].value_counts().head(20)
 
-    fig = px.histogram(
-        df_ind,
-        x="texto",
-        title="Distribuição textual dos indicadores"
+    fig = go.Figure()
+
+    fig.add_bar(
+        x=contagem.index,
+        y=contagem.values
     )
 
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)
