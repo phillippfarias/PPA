@@ -7,31 +7,31 @@ import networkx as nx
 st.set_page_config(layout="wide")
 
 st.title("Visualização Intersetorial do PPA")
-st.subheader("Ferramenta de navegação pelas áreas do Plano Plurianual")
+st.write("Ferramenta de exploração do Plano Plurianual")
 
-# -----------------------------
+# -------------------------------
 # MENU
-# -----------------------------
+# -------------------------------
 
 menu = st.sidebar.selectbox(
     "Escolha a visualização",
     [
         "Mapa Intersetorial",
-        "Explorar Estrutura",
+        "Buscar no PPA",
         "Indicadores"
     ]
 )
 
-# -----------------------------
-# FUNÇÃO LEITURA PDF
-# -----------------------------
+# -------------------------------
+# FUNÇÃO PARA LER PDF
+# -------------------------------
 
-def ler_pdf(arquivo):
+def ler_pdf(caminho):
 
     texto = ""
 
     try:
-        with pdfplumber.open(arquivo) as pdf:
+        with pdfplumber.open(caminho) as pdf:
 
             for page in pdf.pages:
 
@@ -40,15 +40,16 @@ def ler_pdf(arquivo):
                 if conteudo:
                     texto += conteudo + "\n"
 
-    except:
-        st.warning(f"Erro ao ler {arquivo}")
+    except Exception as e:
+
+        st.error(f"Erro ao ler {caminho}")
 
     return texto
 
 
-# -----------------------------
+# -------------------------------
 # TRANSFORMAR TEXTO EM DATAFRAME
-# -----------------------------
+# -------------------------------
 
 def gerar_dataframe(texto):
 
@@ -58,24 +59,26 @@ def gerar_dataframe(texto):
 
     for linha in linhas:
 
-        if len(linha.strip()) > 20:
+        linha = linha.strip()
+
+        if len(linha) > 15:
 
             dados.append({"texto": linha})
 
     return pd.DataFrame(dados)
 
 
-# -----------------------------
-# CARREGAR DADOS
-# -----------------------------
+# -------------------------------
+# CARREGAR PDFs
+# -------------------------------
 
-with st.spinner("Carregando PPA..."):
+with st.spinner("Carregando dados do PPA..."):
 
-    estrutura_texto = ler_pdf("Anexo-I-PDF.pdf")
-    indicadores_texto = ler_pdf("Anexo-II-PDF.pdf")
+    texto_estrutura = ler_pdf("Anexo-I-PDF.pdf")
+    texto_indicadores = ler_pdf("Anexo-II-PDF.pdf")
 
-    df = gerar_dataframe(estrutura_texto)
-    df_ind = gerar_dataframe(indicadores_texto)
+    df = gerar_dataframe(texto_estrutura)
+    df_ind = gerar_dataframe(texto_indicadores)
 
 
 # ====================================================
@@ -97,7 +100,10 @@ if menu == "Mapa Intersetorial":
         G.add_node(node)
 
         if i > 0:
-            G.add_edge(df.iloc[i-1]["texto"], node)
+
+            prev = df.iloc[i-1]["texto"]
+
+            G.add_edge(prev, node)
 
     pos = nx.spring_layout(G)
 
@@ -120,9 +126,8 @@ if menu == "Mapa Intersetorial":
     edge_trace = go.Scatter(
         x=edge_x,
         y=edge_y,
-        line=dict(width=1),
-        hoverinfo='none',
-        mode='lines'
+        mode="lines",
+        hoverinfo="none"
     )
 
     node_x = []
@@ -140,45 +145,35 @@ if menu == "Mapa Intersetorial":
     node_trace = go.Scatter(
         x=node_x,
         y=node_y,
-        mode='markers+text',
+        mode="markers+text",
         text=node_text,
         textposition="top center",
-        hoverinfo='text',
-        marker=dict(
-            size=10
-        )
+        hoverinfo="text",
+        marker=dict(size=8)
     )
 
-    fig = go.Figure(
-        data=[edge_trace, node_trace],
-        layout=go.Layout(
-            showlegend=False,
-            hovermode='closest'
-        )
-    )
+    fig = go.Figure(data=[edge_trace, node_trace])
 
     st.plotly_chart(fig, use_container_width=True)
 
 
 # ====================================================
-# BUSCA NA ESTRUTURA
+# BUSCA
 # ====================================================
 
-elif menu == "Explorar Estrutura":
+elif menu == "Buscar no PPA":
 
-    st.header("Busca na Estrutura do PPA")
+    st.header("Buscar programas, ações ou temas")
 
-    busca = st.text_input("Buscar programa, ação ou tema")
+    busca = st.text_input("Digite um termo")
 
     if busca:
 
         resultado = df[df["texto"].str.contains(busca, case=False)]
 
+        st.write(f"{len(resultado)} resultados encontrados")
+
         st.dataframe(resultado.head(200))
-
-    else:
-
-        st.write("Digite um termo para pesquisar.")
 
 
 # ====================================================
