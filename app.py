@@ -8,15 +8,24 @@ import plotly.express as px
 
 st.set_page_config(layout="wide")
 
-st.title("Plataforma de Visualização do PPA")
+st.title("Visualização Intersetorial do PPA")
+st.subheader("Ferramenta de navegação pelas áreas do Plano Plurianual")
+
+# -----------------------------
+# MENU LATERAL
+# -----------------------------
 
 menu = st.sidebar.selectbox(
-    "Escolha uma área",
-    ["Mapa Intersetorial", "Explorar Dados", "Indicadores"]
+    "Escolha a visualização",
+    [
+        "Mapa Intersetorial",
+        "Explorar Estrutura do PPA",
+        "Indicadores"
+    ]
 )
 
 # -----------------------------
-# FUNÇÃO SEGURA PARA LER PDF
+# FUNÇÃO PARA LER PDF
 # -----------------------------
 
 def ler_pdf(caminho):
@@ -29,30 +38,21 @@ def ler_pdf(caminho):
 
             for page in pdf.pages:
 
-                t = page.extract_text()
+                conteudo = page.extract_text()
 
-                if t:
-                    texto += t + "\n"
-
-        return texto
+                if conteudo:
+                    texto += conteudo + "\n"
 
     except Exception as e:
 
-        st.error(f"Erro ao ler {caminho}")
+        st.error(f"Erro ao ler arquivo {caminho}")
         st.write(e)
 
-        return ""
+    return texto
 
 
 # -----------------------------
-# CARREGAMENTO DOS ARQUIVOS
-# -----------------------------
-
-estrutura_texto = ler_pdf("Anexo-I-PDF.pdf")
-indicadores_texto = ler_pdf("Anexo-II-PDF.pdf")
-
-# -----------------------------
-# CRIAR DATAFRAME SIMPLES
+# FUNÇÃO PARA CRIAR DATAFRAME
 # -----------------------------
 
 def gerar_dataframe(texto):
@@ -63,20 +63,29 @@ def gerar_dataframe(texto):
 
     for linha in linhas:
 
-        if len(linha) > 20:
+        if len(linha.strip()) > 15:
 
             dados.append({"texto": linha})
 
     return pd.DataFrame(dados)
 
 
-df = gerar_dataframe(estrutura_texto)
+# -----------------------------
+# CARREGAR DADOS
+# -----------------------------
 
-df_ind = gerar_dataframe(indicadores_texto)
+with st.spinner("Carregando dados do PPA..."):
 
-# =============================
+    estrutura_texto = ler_pdf("Anexo-I-PDF.pdf")
+    indicadores_texto = ler_pdf("Anexo-II-PDF.pdf")
+
+    df = gerar_dataframe(estrutura_texto)
+    df_ind = gerar_dataframe(indicadores_texto)
+
+
+# ====================================================
 # MAPA INTERSETORIAL
-# =============================
+# ====================================================
 
 if menu == "Mapa Intersetorial":
 
@@ -88,35 +97,45 @@ if menu == "Mapa Intersetorial":
 
     else:
 
+        limite = min(250, len(df))
+
         G = nx.Graph()
 
-        for i in range(min(200, len(df))):
+        for i in range(limite):
 
-            G.add_node(df.iloc[i]["texto"])
+            node = df.iloc[i]["texto"]
+
+            G.add_node(node)
 
             if i > 0:
-                G.add_edge(df.iloc[i-1]["texto"], df.iloc[i]["texto"])
 
-        net = Network(height="750px", width="100%")
+                anterior = df.iloc[i - 1]["texto"]
+
+                G.add_edge(anterior, node)
+
+        net = Network(
+            height="750px",
+            width="100%",
+            bgcolor="white",
+            font_color="black"
+        )
 
         net.from_nx(G)
 
         net.toggle_physics(True)
 
-        net.save_graph("grafo.html")
+        html = net.generate_html()
 
-        HtmlFile = open("grafo.html", "r", encoding="utf-8")
-
-        components.html(HtmlFile.read(), height=800)
+        components.html(html, height=800)
 
 
-# =============================
-# BUSCA
-# =============================
+# ====================================================
+# BUSCA NA ESTRUTURA DO PPA
+# ====================================================
 
-elif menu == "Explorar Dados":
+elif menu == "Explorar Estrutura do PPA":
 
-    st.header("Busca no PPA")
+    st.header("Busca na Estrutura do PPA")
 
     busca = st.text_input("Digite palavra-chave")
 
@@ -124,19 +143,33 @@ elif menu == "Explorar Dados":
 
         resultado = df[df["texto"].str.contains(busca, case=False)]
 
-        st.write(resultado.head(50))
+        st.write("Resultados encontrados:")
+
+        st.dataframe(resultado.head(100))
+
+    else:
+
+        st.write("Digite um termo para iniciar a busca.")
 
 
-# =============================
+# ====================================================
 # INDICADORES
-# =============================
+# ====================================================
 
 elif menu == "Indicadores":
 
     st.header("Indicadores do PPA")
 
-    st.write(df_ind.head(200))
+    st.write("Pré-visualização dos dados extraídos:")
 
-    fig = px.histogram(df_ind, x="texto")
+    st.dataframe(df_ind.head(200))
+
+    st.write("Distribuição de indicadores:")
+
+    fig = px.histogram(
+        df_ind,
+        x="texto",
+        title="Distribuição textual dos indicadores"
+    )
 
     st.plotly_chart(fig)
