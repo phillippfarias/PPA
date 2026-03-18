@@ -7,10 +7,9 @@ import pandas as pd
 st.set_page_config(layout="wide")
 
 st.title("Visualização Intersetorial do PPA")
-
 st.write("Ferramenta de navegação pelas áreas do Plano Plurianual")
 
-# exemplo inicial de estrutura do PPA
+# Estrutura exemplo
 data = {
     "eixo":[
         "Desenvolvimento Social",
@@ -62,28 +61,32 @@ net = Network(
 
 net.from_nx(G)
 
-net.set_options("""
-var options = {
-layout: {
-hierarchical: {
-direction: "LR",
-sortMethod: "directed"
+options = """
+{
+  "layout": {
+    "hierarchical": {
+      "direction": "LR",
+      "sortMethod": "directed"
+    }
+  },
+  "nodes": {
+    "shape": "box",
+    "font": {
+      "size": 20
+    }
+  },
+  "edges": {
+    "arrows": {
+      "to": {
+        "enabled": true
+      }
+    }
+  },
+  "physics": false
 }
-},
-nodes:{
-shape:"box",
-font:{
-size:20
-}
-},
-edges:{
-arrows:{
-to:{enabled:true}
-}
-},
-physics:false
-}
-""")
+"""
+
+net.set_options(options)
 
 net.save_graph("graph.html")
 
