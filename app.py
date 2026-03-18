@@ -9,7 +9,7 @@ st.set_page_config(layout="wide")
 st.title("Visualização Intersetorial do PPA")
 st.write("Ferramenta de navegação pelas áreas do Plano Plurianual")
 
-# Estrutura exemplo
+# dados exemplo
 data = {
     "eixo":[
         "Desenvolvimento Social",
@@ -44,9 +44,9 @@ for _, row in df.iterrows():
     tema = row["tema"]
     programa = row["programa"]
 
-    G.add_node(eixo, color="#1f77b4")
-    G.add_node(tema, color="#2ca02c")
-    G.add_node(programa, color="#ff7f0e")
+    G.add_node(eixo, color="#4F81BD", shape="box")
+    G.add_node(tema, color="#9BBB59", shape="box")
+    G.add_node(programa, color="#F79646", shape="box")
 
     G.add_edge(eixo, tema)
     G.add_edge(tema, programa)
@@ -55,42 +55,25 @@ net = Network(
     height="750px",
     width="100%",
     directed=True,
-    bgcolor="#ffffff",
+    bgcolor="white",
     font_color="black"
 )
 
 net.from_nx(G)
 
-options = """
-{
-  "layout": {
-    "hierarchical": {
-      "direction": "LR",
-      "sortMethod": "directed"
-    }
-  },
-  "nodes": {
-    "shape": "box",
-    "font": {
-      "size": 20
-    }
-  },
-  "edges": {
-    "arrows": {
-      "to": {
-        "enabled": true
-      }
-    }
-  },
-  "physics": false
-}
-"""
+# layout horizontal
+net.hrepulsion(
+    node_distance=200,
+    central_gravity=0,
+    spring_length=200,
+    spring_strength=0.05
+)
 
-net.set_options(options)
+net.toggle_physics(False)
 
 net.save_graph("graph.html")
 
-HtmlFile = open("graph.html","r",encoding="utf-8")
-source_code = HtmlFile.read()
+with open("graph.html","r",encoding="utf-8") as f:
+    source_code = f.read()
 
 components.html(source_code,height=800)
