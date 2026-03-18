@@ -2,18 +2,16 @@ import streamlit as st
 import pdfplumber
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import networkx as nx
 import re
 
 st.set_page_config(layout="wide")
 
 st.title("Observatório do PPA do Ceará")
-st.subheader("Visualizador interativo de programas, ações e indicadores")
 
-# ------------------------------------------------------------
-# CACHE
-# ------------------------------------------------------------
+# -------------------------
+# FUNÇÃO DE LEITURA PDF
+# -------------------------
 
 @st.cache_data
 def extrair_texto_pdf(caminho):
@@ -24,21 +22,19 @@ def extrair_texto_pdf(caminho):
 
         for page in pdf.pages:
 
-            t = page.extract_text()
+            conteudo = page.extract_text()
 
-            if t:
-                texto += t + "\n"
+            if conteudo:
+                texto += conteudo + "\n"
 
     return texto
 
 
-# ------------------------------------------------------------
-# PARSER DA ESTRUTURA DO PPA
-# ------------------------------------------------------------
+# -------------------------
+# PARSER ESTRUTURA
+# -------------------------
 
 def parsear_estrutura(texto):
-
-    linhas = texto.split("\n")
 
     eixo = None
     tema = None
@@ -47,25 +43,25 @@ def parsear_estrutura(texto):
 
     dados = []
 
-    for l in linhas:
+    linhas = texto.split("\n")
 
-        l = l.strip()
+    for linha in linhas:
 
-        if re.search(r"Eixo", l, re.IGNORECASE):
+        l = linha.strip()
+
+        if re.search("Eixo", l, re.IGNORECASE):
             eixo = l
 
-        elif re.search(r"Tema", l, re.IGNORECASE):
+        elif re.search("Tema", l, re.IGNORECASE):
             tema = l
 
-        elif re.search(r"Programa", l, re.IGNORECASE):
+        elif re.search("Programa", l, re.IGNORECASE):
             programa = l
 
-        elif re.search(r"Entrega", l, re.IGNORECASE):
+        elif re.search("Entrega", l, re.IGNORECASE):
             entrega = l
 
-        elif re.search(r"Ação", l, re.IGNORECASE):
-
-            acao = l
+        elif re.search("Ação", l, re.IGNORECASE):
 
             dados.append(
                 {
@@ -73,18 +69,16 @@ def parsear_estrutura(texto):
                     "Tema": tema,
                     "Programa": programa,
                     "Entrega": entrega,
-                    "Acao": acao,
+                    "Acao": l,
                 }
             )
 
-    df = pd.DataFrame(dados)
-
-    return df
+    return pd.DataFrame(dados)
 
 
-# ------------------------------------------------------------
-# PARSER DOS INDICADORES
-# ------------------------------------------------------------
+# -------------------------
+# PARSER INDICADORES
+# -------------------------
 
 def parsear_indicadores(texto):
 
@@ -103,36 +97,38 @@ def parsear_indicadores(texto):
     return pd.DataFrame(dados)
 
 
-# ------------------------------------------------------------
+# -------------------------
 # CARREGAMENTO
-# ------------------------------------------------------------
+# -------------------------
 
-with st.spinner("Carregando dados do PPA..."):
+with st.spinner("Carregando PPA..."):
 
-    texto_estrutura = extrair_texto_pdf("Anexo-I-PDF.pdf")
-    texto_indicadores = extrair_texto_pdf("Anexo-II-PDF.pdf")
+    texto1 = extrair_texto_pdf("Anexo-I-PDF.pdf")
+    texto2 = extrair_texto_pdf("Anexo-II-PDF.pdf")
 
-    df = parsear_estrutura(texto_estrutura)
-    df_ind = parsear_indicadores(texto_indicadores)
+    df = parsear_estrutura(texto1)
+    df_ind = parsear_indicadores(texto2)
 
-# ------------------------------------------------------------
+
+# -------------------------
 # MENU
-# ------------------------------------------------------------
+# -------------------------
 
 menu = st.sidebar.selectbox(
-    "Navegação",
+    "Menu",
     [
         "Visão Geral",
-        "Organograma do PPA",
+        "Organograma",
         "Intersetorialidade",
-        "Buscar no PPA",
+        "Busca",
         "Indicadores"
     ]
 )
 
-# ------------------------------------------------------------
+
+# -------------------------
 # VISÃO GERAL
-# ------------------------------------------------------------
+# -------------------------
 
 if menu == "Visão Geral":
 
@@ -141,18 +137,14 @@ if menu == "Visão Geral":
     st.metric("Programas", df["Programa"].nunique())
     st.metric("Ações", df["Acao"].nunique())
 
-    st.write("Estrutura do PPA")
-
     st.dataframe(df.head(200))
 
 
-# ------------------------------------------------------------
+# -------------------------
 # ORGANOGRAMA
-# ------------------------------------------------------------
+# -------------------------
 
-elif menu == "Organograma do PPA":
-
-    st.header("Organograma Hierárquico do PPA")
+elif menu == "Organograma":
 
     G = nx.DiGraph()
 
@@ -165,55 +157,35 @@ elif menu == "Organograma do PPA":
 
     pos = nx.spring_layout(G)
 
-    edge_x = []
-    edge_y = []
+    fig = px.scatter()
 
     for edge in G.edges():
 
         x0, y0 = pos[edge[0]]
         x1, y1 = pos[edge[1]]
 
-        edge_x += [x0, x1, None]
-        edge_y += [y0, y1, None]
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines"
-    )
-
-    node_x = []
-    node_y = []
-    node_text = []
+        fig.add_scatter(x=[x0, x1], y=[y0, y1], mode="lines")
 
     for node in G.nodes():
 
         x, y = pos[node]
 
-        node_x.append(x)
-        node_y.append(y)
-        node_text.append(node)
-
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        text=node_text,
-        mode="markers+text",
-        textposition="top center"
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace])
+        fig.add_scatter(
+            x=[x],
+            y=[y],
+            text=[node],
+            mode="markers+text",
+            textposition="top center"
+        )
 
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ------------------------------------------------------------
+# -------------------------
 # INTERSETORIALIDADE
-# ------------------------------------------------------------
+# -------------------------
 
 elif menu == "Intersetorialidade":
-
-    st.header("Mapa de Intersetorialidade")
 
     G = nx.Graph()
 
@@ -225,80 +197,57 @@ elif menu == "Intersetorialidade":
 
     pos = nx.spring_layout(G)
 
-    edge_x = []
-    edge_y = []
+    fig = px.scatter()
 
     for edge in G.edges():
 
         x0, y0 = pos[edge[0]]
         x1, y1 = pos[edge[1]]
 
-        edge_x += [x0, x1, None]
-        edge_y += [y0, y1, None]
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines"
-    )
-
-    node_x = []
-    node_y = []
-    node_text = []
+        fig.add_scatter(x=[x0, x1], y=[y0, y1], mode="lines")
 
     for node in G.nodes():
 
         x, y = pos[node]
 
-        node_x.append(x)
-        node_y.append(y)
-        node_text.append(node)
-
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        text=node_text,
-        mode="markers",
-        marker=dict(size=8)
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace])
+        fig.add_scatter(
+            x=[x],
+            y=[y],
+            text=[node],
+            mode="markers"
+        )
 
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ------------------------------------------------------------
+# -------------------------
 # BUSCA
-# ------------------------------------------------------------
+# -------------------------
 
-elif menu == "Buscar no PPA":
+elif menu == "Busca":
 
-    st.header("Busca no PPA")
-
-    termo = st.text_input("Digite um termo")
+    termo = st.text_input("Pesquisar no PPA")
 
     if termo:
 
         resultado = df[
-            df.apply(lambda row: row.astype(str).str.contains(termo, case=False).any(), axis=1)
+            df.apply(lambda r: r.astype(str).str.contains(termo, case=False).any(), axis=1)
         ]
 
-        st.write(f"{len(resultado)} resultados")
+        st.write(len(resultado), "resultados")
 
         st.dataframe(resultado)
 
 
-# ------------------------------------------------------------
+# -------------------------
 # INDICADORES
-# ------------------------------------------------------------
+# -------------------------
 
 elif menu == "Indicadores":
 
-    st.header("Painel de Indicadores")
-
     st.dataframe(df_ind.head(200))
 
-    contagem = df_ind["Indicador"].value_counts().head(15)
+    contagem = df_ind["Indicador"].value_counts().head(20)
 
     fig = px.bar(
         x=contagem.values,
