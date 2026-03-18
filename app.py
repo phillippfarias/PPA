@@ -7,7 +7,11 @@ import networkx as nx
 st.set_page_config(layout="wide")
 
 st.title("Visualização Intersetorial do PPA")
-st.write("Ferramenta de navegação pelas áreas do Plano Plurianual")
+
+st.sidebar.header("Carregar arquivos")
+
+pdf1 = st.sidebar.file_uploader("Estrutura do PPA (Anexo I)", type="pdf")
+pdf2 = st.sidebar.file_uploader("Indicadores (Anexo II)", type="pdf")
 
 menu = st.sidebar.selectbox(
     "Escolha a visualização",
@@ -19,15 +23,12 @@ menu = st.sidebar.selectbox(
 )
 
 # -------------------------------------------------
-# CACHE PARA NÃO REPROCESSAR PDF TODA VEZ
-# -------------------------------------------------
 
-@st.cache_data
-def ler_pdf(caminho):
+def ler_pdf(arquivo):
 
     texto = ""
 
-    with pdfplumber.open(caminho) as pdf:
+    with pdfplumber.open(arquivo) as pdf:
 
         for page in pdf.pages:
 
@@ -38,8 +39,8 @@ def ler_pdf(caminho):
 
     return texto
 
+# -------------------------------------------------
 
-@st.cache_data
 def gerar_dataframe(texto):
 
     linhas = texto.split("\n")
@@ -51,127 +52,128 @@ def gerar_dataframe(texto):
         linha = linha.strip()
 
         if len(linha) > 15:
-
             dados.append({"texto": linha})
 
     return pd.DataFrame(dados)
 
-
-# -------------------------------------------------
-# CARREGAMENTO SOB DEMANDA
 # -------------------------------------------------
 
 if menu == "Mapa Intersetorial":
 
-    st.header("Mapa Intersetorial")
+    if pdf1 is None:
 
-    texto = ler_pdf("Anexo-I-PDF.pdf")
-    df = gerar_dataframe(texto)
+        st.warning("Envie o PDF do Anexo I na barra lateral.")
 
-    limite = min(120, len(df))
+    else:
 
-    G = nx.Graph()
+        texto = ler_pdf(pdf1)
+        df = gerar_dataframe(texto)
 
-    for i in range(limite):
+        limite = min(120, len(df))
 
-        node = df.iloc[i]["texto"]
+        G = nx.Graph()
 
-        G.add_node(node)
+        for i in range(limite):
 
-        if i > 0:
+            node = df.iloc[i]["texto"]
 
-            prev = df.iloc[i-1]["texto"]
+            G.add_node(node)
 
-            G.add_edge(prev, node)
+            if i > 0:
 
-    pos = nx.spring_layout(G)
+                prev = df.iloc[i-1]["texto"]
 
-    edge_x = []
-    edge_y = []
+                G.add_edge(prev, node)
 
-    for edge in G.edges():
+        pos = nx.spring_layout(G)
 
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
+        edge_x = []
+        edge_y = []
 
-        edge_x.append(x0)
-        edge_x.append(x1)
-        edge_x.append(None)
+        for edge in G.edges():
 
-        edge_y.append(y0)
-        edge_y.append(y1)
-        edge_y.append(None)
+            x0, y0 = pos[edge[0]]
+            x1, y1 = pos[edge[1]]
 
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        mode="lines"
-    )
+            edge_x += [x0, x1, None]
+            edge_y += [y0, y1, None]
 
-    node_x = []
-    node_y = []
-    node_text = []
+        edge_trace = go.Scatter(
+            x=edge_x,
+            y=edge_y,
+            mode="lines"
+        )
 
-    for node in G.nodes():
+        node_x = []
+        node_y = []
+        node_text = []
 
-        x, y = pos[node]
+        for node in G.nodes():
 
-        node_x.append(x)
-        node_y.append(y)
-        node_text.append(node)
+            x, y = pos[node]
 
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        text=node_text,
-        mode="markers+text",
-        textposition="top center",
-        marker=dict(size=10)
-    )
+            node_x.append(x)
+            node_y.append(y)
+            node_text.append(node)
 
-    fig = go.Figure(data=[edge_trace, node_trace])
+        node_trace = go.Scatter(
+            x=node_x,
+            y=node_y,
+            text=node_text,
+            mode="markers+text",
+            textposition="top center",
+            marker=dict(size=10)
+        )
 
-    st.plotly_chart(fig, use_container_width=True)
+        fig = go.Figure(data=[edge_trace, node_trace])
 
+        st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------------------------
 
 elif menu == "Buscar no PPA":
 
-    st.header("Buscar no PPA")
+    if pdf1 is None:
 
-    texto = ler_pdf("Anexo-I-PDF.pdf")
-    df = gerar_dataframe(texto)
+        st.warning("Envie o PDF do Anexo I.")
 
-    busca = st.text_input("Digite palavra-chave")
+    else:
 
-    if busca:
+        texto = ler_pdf(pdf1)
+        df = gerar_dataframe(texto)
 
-        resultado = df[df["texto"].str.contains(busca, case=False)]
+        busca = st.text_input("Digite palavra-chave")
 
-        st.write(f"{len(resultado)} resultados")
+        if busca:
 
-        st.dataframe(resultado.head(200))
+            resultado = df[df["texto"].str.contains(busca, case=False)]
 
+            st.write(f"{len(resultado)} resultados")
+
+            st.dataframe(resultado.head(200))
 
 # -------------------------------------------------
 
 elif menu == "Indicadores":
 
-    st.header("Indicadores")
+    if pdf2 is None:
 
-    texto = ler_pdf("Anexo-II-PDF.pdf")
-    df = gerar_dataframe(texto)
+        st.warning("Envie o PDF do Anexo II.")
 
-    st.dataframe(df.head(200))
+    else:
 
-    contagem = df["texto"].value_counts().head(20)
+        texto = ler_pdf(pdf2)
+        df = gerar_dataframe(texto)
 
-    fig = go.Figure()
+        st.dataframe(df.head(200))
 
-    fig.add_bar(
-        x=contagem.index,
-        y=contagem.values
-    )
+        contagem = df["texto"].value_counts().head(20)
 
-    st.plotly_chart(fig, use_container_width=True)
+        fig = go.Figure()
+
+        fig.add_bar(
+            x=contagem.index,
+            y=contagem.values
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
