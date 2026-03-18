@@ -9,10 +9,6 @@ st.set_page_config(layout="wide")
 st.title("Visualização Intersetorial do PPA")
 st.write("Ferramenta de navegação pelas áreas do Plano Plurianual")
 
-# ---------------------------------------------------
-# MENU LATERAL
-# ---------------------------------------------------
-
 menu = st.sidebar.selectbox(
     "Escolha a visualização",
     [
@@ -22,45 +18,28 @@ menu = st.sidebar.selectbox(
     ]
 )
 
-# ---------------------------------------------------
-# FUNÇÃO PARA LER PDF
-# ---------------------------------------------------
+# -------------------------------------------------
+# CACHE PARA NÃO REPROCESSAR PDF TODA VEZ
+# -------------------------------------------------
 
+@st.cache_data
 def ler_pdf(caminho):
 
     texto = ""
 
-    try:
+    with pdfplumber.open(caminho) as pdf:
 
-        st.write(f"Lendo arquivo: {caminho}")
+        for page in pdf.pages:
 
-        with pdfplumber.open(caminho) as pdf:
+            conteudo = page.extract_text()
 
-            total_paginas = len(pdf.pages)
-
-            st.write(f"Total de páginas: {total_paginas}")
-
-            for page in pdf.pages:
-
-                conteudo = page.extract_text()
-
-                if conteudo:
-                    texto += conteudo + "\n"
-
-        st.success(f"Arquivo {caminho} carregado com sucesso")
-
-    except Exception as e:
-
-        st.error(f"Erro ao ler {caminho}")
-        st.exception(e)
+            if conteudo:
+                texto += conteudo + "\n"
 
     return texto
 
 
-# ---------------------------------------------------
-# TRANSFORMAR TEXTO EM DATAFRAME
-# ---------------------------------------------------
-
+@st.cache_data
 def gerar_dataframe(texto):
 
     linhas = texto.split("\n")
@@ -75,36 +54,21 @@ def gerar_dataframe(texto):
 
             dados.append({"texto": linha})
 
-    df = pd.DataFrame(dados)
-
-    return df
+    return pd.DataFrame(dados)
 
 
-# ---------------------------------------------------
-# CARREGAR PDFs
-# ---------------------------------------------------
-
-with st.spinner("Carregando dados do PPA..."):
-
-    texto_estrutura = ler_pdf("Anexo-I-PDF.pdf")
-    texto_indicadores = ler_pdf("Anexo-II-PDF.pdf")
-
-    st.write("Tamanho texto estrutura:", len(texto_estrutura))
-    st.write("Tamanho texto indicadores:", len(texto_indicadores))
-
-    df = gerar_dataframe(texto_estrutura)
-    df_ind = gerar_dataframe(texto_indicadores)
-
-
-# ---------------------------------------------------
-# MAPA INTERSETORIAL
-# ---------------------------------------------------
+# -------------------------------------------------
+# CARREGAMENTO SOB DEMANDA
+# -------------------------------------------------
 
 if menu == "Mapa Intersetorial":
 
-    st.header("Mapa Intersetorial do PPA")
+    st.header("Mapa Intersetorial")
 
-    limite = min(150, len(df))
+    texto = ler_pdf("Anexo-I-PDF.pdf")
+    df = gerar_dataframe(texto)
+
+    limite = min(120, len(df))
 
     G = nx.Graph()
 
@@ -141,8 +105,7 @@ if menu == "Mapa Intersetorial":
     edge_trace = go.Scatter(
         x=edge_x,
         y=edge_y,
-        mode="lines",
-        hoverinfo="none"
+        mode="lines"
     )
 
     node_x = []
@@ -160,11 +123,10 @@ if menu == "Mapa Intersetorial":
     node_trace = go.Scatter(
         x=node_x,
         y=node_y,
-        mode="markers+text",
         text=node_text,
+        mode="markers+text",
         textposition="top center",
-        hoverinfo="text",
-        marker=dict(size=9)
+        marker=dict(size=10)
     )
 
     fig = go.Figure(data=[edge_trace, node_trace])
@@ -172,40 +134,38 @@ if menu == "Mapa Intersetorial":
     st.plotly_chart(fig, use_container_width=True)
 
 
-# ---------------------------------------------------
-# BUSCA
-# ---------------------------------------------------
+# -------------------------------------------------
 
 elif menu == "Buscar no PPA":
 
-    st.header("Buscar programas, ações ou temas")
+    st.header("Buscar no PPA")
 
-    busca = st.text_input("Digite um termo")
+    texto = ler_pdf("Anexo-I-PDF.pdf")
+    df = gerar_dataframe(texto)
+
+    busca = st.text_input("Digite palavra-chave")
 
     if busca:
 
         resultado = df[df["texto"].str.contains(busca, case=False)]
 
-        st.write(f"{len(resultado)} resultados encontrados")
+        st.write(f"{len(resultado)} resultados")
 
         st.dataframe(resultado.head(200))
 
-    else:
 
-        st.write("Digite algo para buscar.")
-
-
-# ---------------------------------------------------
-# INDICADORES
-# ---------------------------------------------------
+# -------------------------------------------------
 
 elif menu == "Indicadores":
 
-    st.header("Indicadores do PPA")
+    st.header("Indicadores")
 
-    st.dataframe(df_ind.head(200))
+    texto = ler_pdf("Anexo-II-PDF.pdf")
+    df = gerar_dataframe(texto)
 
-    contagem = df_ind["texto"].value_counts().head(20)
+    st.dataframe(df.head(200))
+
+    contagem = df["texto"].value_counts().head(20)
 
     fig = go.Figure()
 
