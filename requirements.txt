@@ -1,8 +1,3 @@
 streamlit
-pypdf
+pdfplumber
 pandas
-networkx
-plotly
-sentence-transformers
-faiss-cpu
-numpy
