@@ -6,8 +6,8 @@ import re
 st.set_page_config(layout="wide")
 
 # -------- EXTRAÇÃO --------
-def extract_structured_text(files):
-    data = []
+def extract_text(files):
+    linhas = []
 
     for file in files:
         with pdfplumber.open(file) as pdf:
@@ -15,64 +15,79 @@ def extract_structured_text(files):
                 text = page.extract_text()
 
                 if text:
-                    lines = text.split("\n")
-                    for line in lines:
-                        data.append({
+                    for line in text.split("\n"):
+                        linhas.append({
                             "page": page_num + 1,
                             "text": line.strip()
                         })
 
-    return pd.DataFrame(data)
+    return pd.DataFrame(linhas)
 
 
-# -------- PARSER DO PPA --------
-def parse_ppa(df_texto):
+# -------- PARSER AJUSTADO AO SEU PDF --------
+def parse_ppa(df):
 
     estrutura = []
 
     eixo = tema = programa = objetivo = None
 
-    for _, row in df_texto.iterrows():
+    for _, row in df.iterrows():
         line = row["text"]
 
-        # Normaliza texto
-        line_upper = line.upper()
+        # remove espaços extras
+        line_clean = line.strip()
 
-        # -------- IDENTIFICAÇÃO DOS NÍVEIS --------
-
-        if re.match(r"^EIXO", line_upper):
-            eixo = line
+        # -------- EIXO --------
+        if re.match(r"^\\d+\\s*-\\s*O CEARÁ", line_clean.upper()):
+            eixo = line_clean
             tema = programa = objetivo = None
 
-        elif re.match(r"^TEMA", line_upper):
-            tema = line
+        # -------- TEMA --------
+        elif re.match(r"^\\d+\\.\\d+\\s*-", line_clean):
+            tema = line_clean
             programa = objetivo = None
 
-        elif re.match(r"^PROGRAMA", line_upper):
-            programa = line
+        # -------- PROGRAMA --------
+        elif re.match(r"^\\d{3,}\\s*-", line_clean):
+            programa = line_clean
             objetivo = None
 
-        elif re.match(r"OBJETIVO", line_upper):
-            objetivo = line
+        # -------- OBJETIVO --------
+        elif "OBJETIVO ESPECÍFICO" in line_clean.upper():
+            objetivo = line_clean
 
-        elif re.match(r"ENTREGA|AÇÃO", line_upper):
+        # -------- ENTREGA --------
+        elif line_clean.upper().startswith("BENEFÍCIO") or "ENTREGA" in line_clean.upper():
             estrutura.append({
                 "Eixo": eixo,
                 "Tema": tema,
                 "Programa": programa,
-                "Objetivo Específico": objetivo,
-                "Entrega/Ação": line,
+                "Objetivo": objetivo,
+                "Entrega": line_clean,
                 "Indicador": None
             })
 
-        elif re.match(r"INDICADOR", line_upper):
+        # -------- AÇÃO --------
+        elif re.match(r"^\\d{4,}\\s*-", line_clean):
             estrutura.append({
                 "Eixo": eixo,
                 "Tema": tema,
                 "Programa": programa,
-                "Objetivo Específico": objetivo,
-                "Entrega/Ação": None,
-                "Indicador": line
+                "Objetivo": objetivo,
+                "Entrega": None,
+                "Indicador": None,
+                "Ação": line_clean
+            })
+
+        # -------- INDICADOR (se existir no outro PDF) --------
+        elif "INDICADOR" in line_clean.upper():
+            estrutura.append({
+                "Eixo": eixo,
+                "Tema": tema,
+                "Programa": programa,
+                "Objetivo": objetivo,
+                "Entrega": None,
+                "Indicador": line_clean
             })
 
     return pd.DataFrame(estrutura)
@@ -89,76 +104,47 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
-    with st.spinner("Extraindo dados do PDF..."):
-        df_texto = extract_structured_text(uploaded_files)
+    with st.spinner("Extraindo texto..."):
+        df_texto = extract_text(uploaded_files)
 
-    with st.spinner("Estruturando o PPA..."):
+    with st.spinner("Estruturando PPA..."):
         df = parse_ppa(df_texto)
 
     if df.empty:
-        st.error("Não foi possível identificar a estrutura. Precisamos ajustar o parser.")
+        st.error("Parser não conseguiu identificar a estrutura.")
     else:
-        st.success("PPA estruturado com sucesso!")
+        st.success("PPA estruturado!")
 
-        # -------- NAVEGAÇÃO --------
-
-        eixo_sel = st.selectbox(
-            "Eixo",
-            sorted(df["Eixo"].dropna().unique())
-        )
+        # -------- FILTROS --------
+        eixo_sel = st.selectbox("Eixo", df["Eixo"].dropna().unique())
 
         df1 = df[df["Eixo"] == eixo_sel]
 
-        tema_sel = st.selectbox(
-            "Tema",
-            sorted(df1["Tema"].dropna().unique())
-        )
+        tema_sel = st.selectbox("Tema", df1["Tema"].dropna().unique())
 
         df2 = df1[df1["Tema"] == tema_sel]
 
-        prog_sel = st.selectbox(
-            "Programa",
-            sorted(df2["Programa"].dropna().unique())
-        )
+        prog_sel = st.selectbox("Programa", df2["Programa"].dropna().unique())
 
         df3 = df2[df2["Programa"] == prog_sel]
 
-        obj_sel = st.selectbox(
-            "Objetivo Específico",
-            sorted(df3["Objetivo Específico"].dropna().unique())
-        )
+        obj_sel = st.selectbox("Objetivo", df3["Objetivo"].dropna().unique())
 
-        df_final = df3[df3["Objetivo Específico"] == obj_sel]
+        df_final = df3[df3["Objetivo"] == obj_sel]
 
-        # -------- RESULTADOS --------
+        # -------- SAÍDA --------
+        st.subheader("Entregas")
+        st.dataframe(df_final[df_final["Entrega"].notna()][["Entrega"]], width="stretch")
 
-        st.subheader("Entregas / Ações")
-        entregas = df_final[df_final["Entrega/Ação"].notna()]
-        st.dataframe(entregas[["Entrega/Ação"]], use_container_width=True)
+        st.subheader("Ações")
+        if "Ação" in df_final.columns:
+            st.dataframe(df_final[df_final["Ação"].notna()][["Ação"]], width="stretch")
 
-        st.subheader("Indicadores relacionados")
-        indicadores = df_final[df_final["Indicador"].notna()]
-        st.dataframe(indicadores[["Indicador"]], use_container_width=True)
+        st.subheader("Indicadores")
+        st.dataframe(df_final[df_final["Indicador"].notna()][["Indicador"]], width="stretch")
 
-        # -------- VISÃO CONSOLIDADA --------
-
-        st.subheader("Visão consolidada")
-        st.dataframe(df_final, use_container_width=True)
+        st.subheader("Base completa")
+        st.dataframe(df_final, width="stretch")
 
 else:
     st.info("Envie os PDFs para começar.")
-
-
-# -------- INFO FINAL --------
-st.markdown("""
-### O que essa versão já resolve:
-- Estrutura real do PPA (hierarquia completa)
-- Navegação por níveis
-- Separação de entregas e indicadores
-
-### Próximos upgrades possíveis:
-- Árvore interativa (expandir/recolher)
-- Mapa de intersetorialidade entre programas
-- Exportação para Excel
-- Dashboard analítico
-""")
