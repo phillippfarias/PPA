@@ -1,22 +1,13 @@
+# app.py
 import streamlit as st
 from pypdf import PdfReader
 import pandas as pd
-import networkx as nx
-import plotly.graph_objects as go
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
+import re
 
 st.set_page_config(layout="wide")
 
-# -------- LOAD MODEL --------
-@st.cache_resource
-def load_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
-
-model = load_model()
-
 # -------- PDF PROCESSING --------
+
 def extract_text_from_pdf(file):
     reader = PdfReader(file)
     text = ""
@@ -29,34 +20,50 @@ def extract_text_from_pdf(file):
             pass
     return text
 
+# -------- PARSER SIMPLES DO PPA --------
 
-def chunk_text(text, chunk_size=500, overlap=100):
-    chunks = []
-    start = 0
-    text_length = len(text)
+def parse_ppa_structure(text):
+    estrutura = []
 
-    while start < text_length:
-        end = start + chunk_size
-        chunk = text[start:end]
-        chunks.append(chunk)
-        start += chunk_size - overlap
+    eixo = None
+    tema = None
+    programa = None
+    objetivo = None
 
-    return chunks
+    lines = text.split("\n")
 
+    for line in lines:
+        line = line.strip()
 
-def build_vector_store(chunks):
-    embeddings = model.encode(chunks, show_progress_bar=False)
-    embeddings = np.array(embeddings).astype("float32")
+        # Ajuste esses padrões conforme o PDF real
+        if re.search(r"Eixo", line, re.IGNORECASE):
+            eixo = line
+            tema = programa = objetivo = None
 
-    dim = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dim)
-    index.add(embeddings)
+        elif re.search(r"Tema", line, re.IGNORECASE):
+            tema = line
+            programa = objetivo = None
 
-    return index, embeddings
+        elif re.search(r"Programa", line, re.IGNORECASE):
+            programa = line
+            objetivo = None
 
+        elif re.search(r"Objetivo", line, re.IGNORECASE):
+            objetivo = line
+
+        elif re.search(r"Entrega|Ação", line, re.IGNORECASE):
+            estrutura.append({
+                "Eixo": eixo,
+                "Tema": tema,
+                "Programa": programa,
+                "Objetivo": objetivo,
+                "Entrega/Ação": line
+            })
+
+    return pd.DataFrame(estrutura)
 
 # -------- UI --------
-st.title("Visualizador de Intersetorialidade do PPA")
+st.title("Mapa Interativo do PPA")
 
 uploaded_files = st.file_uploader(
     "Envie os PDFs do PPA",
@@ -66,97 +73,56 @@ uploaded_files = st.file_uploader(
 
 if uploaded_files:
 
-    all_chunks = []
+    full_text = ""
 
-    with st.spinner("Processando PDFs... (pode levar alguns minutos)"):
+    with st.spinner("Processando PDFs..."):
         for file in uploaded_files:
-            text = extract_text_from_pdf(file)
-            chunks = chunk_text(text)
-            all_chunks.extend(chunks)
+            full_text += extract_text_from_pdf(file)
 
-        index, embeddings = build_vector_store(all_chunks)
+    df = parse_ppa_structure(full_text)
 
-    st.success(f"{len(all_chunks)} trechos processados")
+    if df.empty:
+        st.warning("Não foi possível identificar a estrutura automaticamente. Precisamos ajustar o parser.")
 
-    # -------- BUSCA --------
-    query = st.text_input("Buscar termos (ex: programa, indicador, eixo...)")
+    else:
+        st.success("Estrutura carregada!")
 
-    if query:
-        query_vec = model.encode([query])
-        query_vec = np.array(query_vec).astype("float32")
+        # -------- NAVEGAÇÃO HIERÁRQUICA --------
+        eixo_sel = st.selectbox("Eixo", sorted(df["Eixo"].dropna().unique()))
 
-        D, I = index.search(query_vec, k=5)
+        df_tema = df[df["Eixo"] == eixo_sel]
+        tema_sel = st.selectbox("Tema", sorted(df_tema["Tema"].dropna().unique()))
 
-        st.subheader("Resultados mais relevantes")
-        for i in I[0]:
-            st.write(all_chunks[i])
-            st.markdown("---")
+        df_prog = df_tema[df_tema["Tema"] == tema_sel]
+        prog_sel = st.selectbox("Programa", sorted(df_prog["Programa"].dropna().unique()))
 
-    # -------- GRAFO --------
-    st.subheader("Visualização de Relações (Protótipo)")
+        df_obj = df_prog[df_prog["Programa"] == prog_sel]
+        obj_sel = st.selectbox("Objetivo", sorted(df_obj["Objetivo"].dropna().unique()))
 
-    max_nodes = min(50, len(all_chunks))
-    sample_nodes = all_chunks[:max_nodes]
+        df_final = df_obj[df_obj["Objetivo"] == obj_sel]
 
-    G = nx.Graph()
+        st.subheader("Entregas / Ações")
+        st.dataframe(df_final[["Entrega/Ação"]])
 
-    for i, chunk in enumerate(sample_nodes):
-        G.add_node(i, label=chunk[:80])
-
-    for i in range(len(sample_nodes)):
-        for j in range(i + 1, len(sample_nodes)):
-            sim = np.dot(embeddings[i], embeddings[j])
-            if sim > 0.7:
-                G.add_edge(i, j)
-
-    pos = nx.spring_layout(G, seed=42)
-
-    edge_x = []
-    edge_y = []
-
-    for edge in G.edges():
-        x0, y0 = pos[edge[0]]
-        x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
-
-    edge_trace = go.Scatter(
-        x=edge_x,
-        y=edge_y,
-        line=dict(width=0.5),
-        hoverinfo='none',
-        mode='lines'
-    )
-
-    node_x = []
-    node_y = []
-    texts = []
-
-    for node in G.nodes():
-        x, y = pos[node]
-        node_x.append(x)
-        node_y.append(y)
-        texts.append(G.nodes[node]['label'])
-
-    node_trace = go.Scatter(
-        x=node_x,
-        y=node_y,
-        mode='markers',
-        hovertext=texts,
-        hoverinfo="text",
-        marker=dict(size=10)
-    )
-
-    fig = go.Figure(data=[edge_trace, node_trace])
-    st.plotly_chart(fig, use_container_width=True)
+        # -------- INDICADORES (placeholder) --------
+        st.subheader("Indicadores relacionados (protótipo)")
+        st.info("Aqui você poderá conectar os indicadores a cada nível.")
 
 else:
     st.info("Envie os PDFs para começar.")
 
-# -------- DICAS --------
+# -------- PRÓXIMOS PASSOS --------
 st.markdown("""
-### Próximos passos recomendados:
-- Estruturar automaticamente os níveis do PPA (eixo, tema, programa...)
-- Criar banco de dados estruturado
-- Melhorar o grafo com hierarquia real (não só similaridade)
+### Evoluções recomendadas:
+- Refinar parser com padrões reais do PPA
+- Conectar indicadores automaticamente
+- Criar visualização em árvore (tree graph)
+- Permitir exportação dos dados
 """)
+
+
+# requirements.txt
+# ----------------
+# streamlit
+# pypdf
+# pandas
