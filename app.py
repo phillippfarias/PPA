@@ -5,7 +5,7 @@ import re
 
 st.set_page_config(layout="wide")
 
-# -------- EXTRAÇÃO DO PDF --------
+# -------- EXTRAÇÃO --------
 def extract_text(files):
     linhas = []
 
@@ -24,7 +24,7 @@ def extract_text(files):
     return pd.DataFrame(linhas)
 
 
-# -------- PARSER DO PPA (AJUSTADO AO SEU PDF) --------
+# -------- PARSER --------
 def parse_ppa(df):
 
     estrutura = []
@@ -33,29 +33,24 @@ def parse_ppa(df):
 
     for _, row in df.iterrows():
         line = row["text"].strip()
-        line_upper = line.upper()
+        up = line.upper()
 
-        # -------- EIXO --------
-        if re.match(r"^\d+\s*-\s*O CEARÁ", line_upper):
+        if re.match(r"^\d+\s*-\s*", line):
             eixo = line
             tema = programa = objetivo = None
 
-        # -------- TEMA --------
         elif re.match(r"^\d+\.\d+\s*-", line):
             tema = line
             programa = objetivo = None
 
-        # -------- PROGRAMA --------
         elif re.match(r"^\d{3,}\s*-", line):
             programa = line
             objetivo = None
 
-        # -------- OBJETIVO --------
-        elif "OBJETIVO ESPECÍFICO" in line_upper:
+        elif "OBJETIVO ESPECÍFICO" in up:
             objetivo = line
 
-        # -------- ENTREGA --------
-        elif line_upper.startswith("BENEFÍCIO") or line_upper.startswith("GEOCADASTRO") or "ENTREGA" in line_upper:
+        elif "ENTREGA" in up or up.startswith("BENEFÍCIO"):
             estrutura.append({
                 "Eixo": eixo,
                 "Tema": tema,
@@ -65,7 +60,6 @@ def parse_ppa(df):
                 "Ação": None
             })
 
-        # -------- AÇÃO --------
         elif re.match(r"^\d{4,}\s*-", line):
             estrutura.append({
                 "Eixo": eixo,
@@ -79,56 +73,36 @@ def parse_ppa(df):
     return pd.DataFrame(estrutura)
 
 
-# -------- INTERFACE --------
-st.title("Mapa Interativo do PPA - Ceará")
+# -------- UI --------
+st.title("Mapa do PPA")
 
-uploaded_files = st.file_uploader(
-    "Envie os PDFs do PPA",
-    type=["pdf"],
-    accept_multiple_files=True
-)
+files = st.file_uploader("Envie os PDFs", type=["pdf"], accept_multiple_files=True)
 
-if uploaded_files:
+if files:
 
-    with st.spinner("Lendo PDFs..."):
-        df_texto = extract_text(uploaded_files)
-
-    with st.spinner("Estruturando dados..."):
-        df = parse_ppa(df_texto)
+    df_texto = extract_text(files)
+    df = parse_ppa(df_texto)
 
     if df.empty:
-        st.error("Não foi possível identificar a estrutura. Me envie um trecho maior do PDF para ajustar o parser.")
+        st.error("Nada foi identificado. Precisamos ajustar o parser.")
     else:
-        st.success("PPA estruturado com sucesso!")
+        eixo = st.selectbox("Eixo", df["Eixo"].dropna().unique())
+        df1 = df[df["Eixo"] == eixo]
 
-        # -------- FILTROS HIERÁRQUICOS --------
-        eixo_sel = st.selectbox("Eixo", sorted(df["Eixo"].dropna().unique()))
+        tema = st.selectbox("Tema", df1["Tema"].dropna().unique())
+        df2 = df1[df1["Tema"] == tema]
 
-        df1 = df[df["Eixo"] == eixo_sel]
+        prog = st.selectbox("Programa", df2["Programa"].dropna().unique())
+        df3 = df2[df2["Programa"] == prog]
 
-        tema_sel = st.selectbox("Tema", sorted(df1["Tema"].dropna().unique()))
+        obj = st.selectbox("Objetivo", df3["Objetivo"].dropna().unique())
+        df_final = df3[df3["Objetivo"] == obj]
 
-        df2 = df1[df1["Tema"] == tema_sel]
-
-        prog_sel = st.selectbox("Programa", sorted(df2["Programa"].dropna().unique()))
-
-        df3 = df2[df2["Programa"] == prog_sel]
-
-        obj_sel = st.selectbox("Objetivo Específico", sorted(df3["Objetivo"].dropna().unique()))
-
-        df_final = df3[df3["Objetivo"] == obj_sel]
-
-        # -------- RESULTADOS --------
         st.subheader("Entregas")
-        entregas = df_final[df_final["Entrega"].notna()]
-        st.dataframe(entregas[["Entrega"]], width="stretch")
+        st.dataframe(df_final[df_final["Entrega"].notna()][["Entrega"]])
 
         st.subheader("Ações")
-        acoes = df_final[df_final["Ação"].notna()]
-        st.dataframe(acoes[["Ação"]], width="stretch")
-
-        st.subheader("Visão consolidada")
-        st.dataframe(df_final, width="stretch")
+        st.dataframe(df_final[df_final["Ação"].notna()][["Ação"]])
 
 else:
-    st.info("Envie os PDFs para começar.")
+    st.info("Envie os PDFs.")
